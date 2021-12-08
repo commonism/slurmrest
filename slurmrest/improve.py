@@ -1,6 +1,7 @@
 import argparse
 import itertools
 import json
+import re
 
 import requests
 from pathlib import Path
@@ -458,6 +459,7 @@ def create_parser():
     cmd = sub.add_parser("patch")
     cmd.add_argument("--old", default="data/src")
     cmd.add_argument("--new", default="data/dst")
+    cmd.add_argument("--slurm", default="~/workspace/slurm/")
 
     def cmd_patch(args):
         if not (p := Path(args.new)).exists():
@@ -466,9 +468,18 @@ def create_parser():
         for i in Path(args.old).iterdir():
             data = json.loads(i.open("r").read())
             data = apply(data, i.stem)
-            (Path(args.new) / i.name).open('wt').write(json.dumps(data, indent=2))
+            (Path(args.new) / i.name).open('wt').write((data:=json.dumps(data, indent=2)))
+
+            if not (s:=Path(args.slurm).expanduser()).exists():
+                continue
+            (s / "src"/"plugins"/"openapi"/ i.stem / "openapi.json").open('wt').write(data)
+#            name,version,_ = re.match("(\D+)([\w.]+)",i.stem).groups()
+
+
 
     cmd.set_defaults(func=cmd_patch)
+
+
 
     return parser
 
