@@ -1,14 +1,78 @@
 import argparse
 import itertools
 import json
+import base64
+import time
 import re
-
-import requests
 from pathlib import Path
 
+import requests
+
 import jmespath
+from jwt import JWT
+from jwt.jwk import jwk_from_dict
+from jwt.utils import b64encode
+
+
+def token(key, user):
+    priv_key = base64.b64decode(key)
+    interval = 600
+    user = user
+
+    signing_key = jwk_from_dict({
+        'kty': 'oct',
+        'k': b64encode(priv_key)
+    })
+
+    message = {
+        "exp": int(time.time() + interval),
+        "iat": int(time.time()),
+        "sun": user
+    }
+
+    a = JWT()
+    compact_jws = a.encode(message, signing_key, alg='HS256')
+    return compact_jws
+
+def versionof(name):
+    return re.match("(\D+)([\w.]+)", name).groups()
+
+
+def _session_factory(user, token):
+    s = requests.Session()
+    s.headers.update({
+        "X-SLURM-USER-NAME": user,
+        "X-SLURM-USER-TOKEN": token,
+    })
+    return s
+
+
+def wget(url, user, token):
+    s = _session_factory(user, token)
+    r = s.get(url)
+    return r
+
 
 def apply(spec, version, live=''):
+
+    _,v0 = versionof(version)
+
+    # remove all oeprations besides the choosen one …
+    for i in jmespath.search("paths|keys(@)", spec):
+        if not len((p:=Path(i)).parts) > 2:
+            # /openapi/…
+            continue
+        _, v1 = versionof(p.parts[2])
+        if v0 == v1:
+            continue
+        del spec['paths'][i]
+
+    # remove all components …
+    for i in list(spec["components"]["schemas"].keys()):
+        _, v1 = versionof(i.split("_")[0])
+        if v0 != v1:
+            del spec["components"]["schemas"][i]
+
 
     def operationof(name):
         if (r:= jmespath.search(f"paths.[*][].[*][][?operationId == '{name}'][]", spec)):
@@ -92,6 +156,7 @@ def apply(spec, version, live=''):
                      f"{version}_config_info",
                      f"{version}_qos_info",
                      f"{version}_wckey_info",
+                     f"{version}_response_user_delete", # v0.0.37
                      ]):
             v["properties"].update({"meta": {"$ref": f"#/components/schemas/{version}_meta"}, })
 
@@ -101,6 +166,9 @@ def apply(spec, version, live=''):
         del spec['components']['schemas'][f'{version}_job_submission']['properties']['job']['description']
         spec['components']['schemas'][f"{version}_error"]["properties"].update({
             "error_code":{"type": "integer"},
+            "error_number": {"type": "integer"},
+            "description": {"type": "string"},
+            "source": {"type": "string"},
             })
 
 
@@ -295,7 +363,7 @@ def apply(spec, version, live=''):
             }
         })
 
-        spec['components']['schemas'][f"{version}_tres_info"]["properties"]["TRES"] = {"$ref": "#/components/schemas/dbv0.0.36_tres_list"}
+        spec['components']['schemas'][f"{version}_tres_info"]["properties"]["TRES"] = {"$ref": f"#/components/schemas/{version}_tres_list"}
         del spec['components']['schemas'][f"{version}_tres_info"]["properties"]["tres"]
 
         # slurmdbd_get_associations
@@ -321,7 +389,7 @@ def apply(spec, version, live=''):
                 {"type": "null"}
             ]
         }
-        spec['components']['schemas'][f"{version}_cluster"]["properties"]["tres"] = {"$ref": "#/components/schemas/dbv0.0.36_tres_list"}
+        spec['components']['schemas'][f"{version}_cluster"]["properties"]["tres"] = {"$ref": f"#/components/schemas/{version}_tres_list"}
 
         del spec['components']['schemas'][f"{version}_cluster"]["properties"]["meta"]
 
@@ -355,7 +423,7 @@ def apply(spec, version, live=''):
         spec['components']['schemas'][f"{version}_qos"]["properties"]["limits"]["properties"]["max"]["properties"]["active_jobs"] = {"type": "integer"}
         spec['components']['schemas'][f"{version}_qos"]["properties"]["limits"]["properties"]["max"]["properties"]["tres"]["properties"]["total"] = {"type": "integer"}
         spec['components']['schemas'][f"{version}_qos"]["properties"]["limits"]["properties"]["max"]["properties"]\
-            ["tres"]["properties"]["minutes"]["properties"]["per"]["properties"]["qos"] = {"$ref": "#/components/schemas/dbv0.0.36_tres_list"}
+            ["tres"]["properties"]["minutes"]["properties"]["per"]["properties"]["qos"] = {"$ref": f"#/components/schemas/{version}_tres_list"}
 
         spec['components']['schemas'][f"{version}_qos_info"]["properties"]["QOS"] = spec['components']['schemas'][f"{version}_qos_info"]["properties"]["qos"]
         del spec['components']['schemas'][f"{version}_qos_info"]["properties"]["qos"]
