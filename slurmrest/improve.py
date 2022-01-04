@@ -6,7 +6,7 @@ import time
 import re
 from pathlib import Path
 
-import requests
+import httpx
 
 import jmespath
 from jwt import JWT
@@ -38,13 +38,15 @@ def versionof(name):
     return re.match("(\D+)([\w.]+)", name).groups()
 
 
+session = httpx.Client()
+
 def _session_factory(user, token):
-    s = requests.Session()
-    s.headers.update({
+    global session
+    session.headers.update({
         "X-SLURM-USER-NAME": user,
         "X-SLURM-USER-TOKEN": token,
     })
-    return s
+    return session
 
 
 def wget(url, user, token):
@@ -179,7 +181,10 @@ def apply(spec, version, live=''):
             "type": "object",
             "description": "node allocations",
             "properties": {
-              "0": {"$ref": f"#/components/schemas/{version}_node_allocation"},
+                "0": {
+                    "type":"object",
+                    "$ref": f"#/components/schemas/{version}_node_allocation"
+                },
             }
         }
 
@@ -194,7 +199,7 @@ def apply(spec, version, live=''):
 
         # same
         spec['components']['schemas'][f'{version}_node_allocation']['properties']["sockets"] = spec['components']['schemas'][f'{version}_node_allocation']['properties']["cores"]
-
+        spec['components']['schemas'][f'{version}_node_allocation']['properties']["cpus"] = {"type":"integer"}
     else:
         # dbd
         spec['components']['schemas'][f"{version}_user"]["properties"]["associations"] = \
@@ -408,20 +413,35 @@ def apply(spec, version, live=''):
         # config_info
         spec['components']['schemas'][f"{version}_config_info"]["properties"]["clusters"] = {"type": "array", "items":{"$ref": f"#/components/schemas/{version}_cluster"}}
         spec['components']['schemas'][f"{version}_config_info"]["properties"]["TRES"] = {
-            "oneOf": [
-                spec['components']['schemas'][f"{version}_config_info"]["properties"]["tres"],
-                {"type": "null"}
-            ]
+            "type": "object",
+            "$ref": f"#/components/schemas/{version}_tres_list",
         }
         del spec['components']['schemas'][f"{version}_config_info"]["properties"]["tres"]
 
         spec['components']['schemas'][f"{version}_config_info"]["properties"]["QOS"] = spec['components']['schemas'][f"{version}_config_info"]["properties"]["qos"]
+
         del spec['components']['schemas'][f"{version}_config_info"]["properties"]["qos"]
 
         spec['components']['schemas'][f"{version}_qos"]["properties"]["name"] = {"type": "string"}
         spec['components']['schemas'][f"{version}_qos"]["properties"]["limits"]["properties"]["grace_time"] = {"type": "integer"}
-        spec['components']['schemas'][f"{version}_qos"]["properties"]["limits"]["properties"]["max"]["properties"]["active_jobs"] = {"type": "integer"}
-        spec['components']['schemas'][f"{version}_qos"]["properties"]["limits"]["properties"]["max"]["properties"]["tres"]["properties"]["total"] = {"type": "integer"}
+        spec['components']['schemas'][f"{version}_qos"]["properties"]["limits"]["properties"]["max"]["properties"]["active_jobs"] = {
+            "type": "object",
+            "properties": {
+                "accruing":{
+                    "type":"string"
+                },
+                "count":{
+                    "type":"string"
+                }
+            }
+        }
+        spec['components']['schemas'][f"{version}_qos"]["properties"]["limits"]["properties"]["max"]["properties"]["tres"]["properties"]["total"] = {
+            "type": "array",
+            "items":{
+                "type":"integer"
+            }
+        }
+
         spec['components']['schemas'][f"{version}_qos"]["properties"]["limits"]["properties"]["max"]["properties"]\
             ["tres"]["properties"]["minutes"]["properties"]["per"]["properties"]["qos"] = {"$ref": f"#/components/schemas/{version}_tres_list"}
 
@@ -453,8 +473,15 @@ def apply(spec, version, live=''):
         spec['components']['schemas'][f"{version}_job"]["properties"]["het"]["properties"]["job_id"]["type"] = "integer"
         spec['components']['schemas'][f"{version}_job"]["properties"]["het"]["properties"]["job_offset"]["type"] = "integer"
         spec['components']['schemas'][f"{version}_job_step"]["properties"].update({
-            "distribution":{"type":"string"},
-            "task": {"type": "string"},
+#            "distribution":{"type":"string"},
+            "task": {
+                "type": "object",
+                "properties": {
+                    "distribution": {
+                        "type":"string"
+                    }
+                }
+            },
             "tres": {
                 "type": "object",
                 "description": "TRES usage",
@@ -502,6 +529,7 @@ def apply(spec, version, live=''):
             }
         })
 
+
     return spec
 
 
@@ -519,7 +547,7 @@ def create_parser():
             out = Path(args.out) / f"{name}{version}.json"
             if not (p := out.parent).exists():
                 p.mkdir(parents=True)
-            r = requests.get(url)
+            r = httpx.get(url)
             out.open("wt").write(r.text)
 
     cmd.set_defaults(func=cmd_get)
@@ -543,12 +571,9 @@ def create_parser():
             (s / "src"/"plugins"/"openapi"/ i.stem / "openapi.json").open('wt').write(data)
 #            name,version,_ = re.match("(\D+)([\w.]+)",i.stem).groups()
 
-
-
     cmd.set_defaults(func=cmd_patch)
 
-
-
+    
     return parser
 
 

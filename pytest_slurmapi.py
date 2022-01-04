@@ -1,8 +1,7 @@
 import yaml
 import pytest
-import requests
 import openapi3
-from openapi3 import OpenAPI
+from aiopenapi3 import OpenAPI
 
 from slurmrest import improve
 
@@ -22,6 +21,9 @@ def config():
     cfg = yaml.load(open('config.yml', 'r'), Loader=yaml.Loader)
     return cfg
 
+
+
+
 @pytest.fixture(scope="session")
 def client(config, token, spec):
     user = config["user"]
@@ -34,8 +36,11 @@ def client(config, token, spec):
 
 
     spec["servers"][0]["url"] = "http://127.0.0.1:6820" + spec["servers"][0]["url"]
+    import json, httpx
+    def session_factory(*args, **kwargs) -> httpx.Client:
+        return improve._session_factory(user, token)
 
-    api = OpenAPI(spec, session_factory=lambda: improve._session_factory(config['user'], token), use_session=True)
+    api = OpenAPI.loads("slurmrest.json", json.dumps(spec), session_factory=session_factory)
     # api.authenticate does not work for multi values
     api._security = {'user': user, 'token': token}
     api.info.version = "dbv0.0.37"
@@ -44,34 +49,39 @@ def client(config, token, spec):
 
 def test_slurmdbd_delete_account(client):
     test_slurmdbd_update_account(client)
-    r = client.call_slurmdbd_delete_account(parameters={"account_name":"unlimited"})
+    r = client._.slurmdbd_delete_account(parameters={"account_name":"unlimited"})
     assert r.errors == []
 
 
 def test_slurmdbd_get_account(client):
-    r = client.call_slurmdbd_get_account(parameters={"account_name":"root"})
+    r = client._.slurmdbd_get_account(parameters={"account_name":"root"})
     assert r.errors == []
     assert len(r.accounts) > 0
     assert r.accounts[0].name == "root"
 
 
 def test_slurmdbd_update_account(client):
-    account = client.components.schemas[f"{client.info.version}_account"].model(
-        data={"name": "unlimited",
-              "associations": [{'account': 'unlimited', 'cluster': 'c0', 'partition': None, 'user': None}],
-              "coordinators": [],
-              "description": "unlimited resources",
-              "organization": "unlimited",
-              "flags": []
-    })
+    update_account = client._.slurmdbd_update_account.args()["data"].get_type()
+    account = update_account.__fields__["accounts"].type_
+    association_short_info = account.__fields__["associations"].type_
 
-    accounts = client.components.schemas[f"{client.info.version}_update_account"].model(data={"accounts":[account._raw_data]})
-    r = client.call_slurmdbd_update_account(data=accounts)
+    a = account(
+        name="unlimited",
+        associations=[association_short_info(account='unlimited', cluster='c0', partition=None, user=None)],
+        coordinators=[],
+        description="unlimited resources",
+        organization="unlimited",
+        flags=[]
+    )
+
+    accounts = update_account(accounts=[a])
+
+    r = client._.slurmdbd_update_account(data=accounts)
     assert r.errors == []
 
 
 def test_slurmdbd_get_accounts(client):
-    r = client.call_slurmdbd_get_accounts()
+    r = client._.slurmdbd_get_accounts()
     assert r.errors == []
 
 @pytest.mark.xfail(raises=NotImplementedError)
@@ -85,7 +95,7 @@ def test_slurmdbd_get_association():
 
 
 def test_slurmdbd_get_associations(client):
-    r = client.call_slurmdbd_get_associations()
+    r = client._.slurmdbd_get_associations()
     assert r.errors == []
 
 
@@ -105,12 +115,12 @@ def test_slurmdbd_add_clusters():
 
 
 def test_slurmdbd_get_clusters(client):
-    r = client.call_slurmdbd_get_clusters()
+    r = client._.slurmdbd_get_clusters()
     assert r.errors == []
 
 
 def test_slurmdbd_get_db_config(client):
-    r = client.call_slurmdbd_get_db_config()
+    r = client._.slurmdbd_get_db_config()
     assert r.errors == [] or r.errors[0].error == 'Nothing found with query'
 
 
@@ -120,12 +130,12 @@ def test_slurmdbd_set_db_config():
 
 
 def test_slurmctld_diag(client):
-    r = client.call_slurmctld_diag()
+    r = client._.slurmctld_diag()
     assert r.errors == []
 
 
 def test_slurmdbd_diag(client):
-    r = client.call_slurmdbd_diag()
+    r = client._.slurmdbd_diag()
     assert r.errors == []
 
 
@@ -145,23 +155,30 @@ def test_slurmdbd_get_job():
 
 
 def test_slurmctld_submit_job(client):
-    job = {
-        "job": {
-            "account": "root",
-            "partition": "debug",
-            "array": "",
-            "ntasks": 1,
-            "name": "testing",
-            "nodes": [0,0],
-            "current_working_directory": "/tmp/",
-            "environment": {
-                "PATH": "/bin:/usr/bin/:/usr/local/bin/",
-                "LD_LIBRARY_PATH": "/lib/:/lib64/:/usr/local/lib"
-            }
-        },
-        "script": "#!/bin/bash\nsrun echo it works"
+    job_submission = client._.slurmctld_submit_job.args()["data"].get_type()
+    job_properties = job_submission.__fields__["job"].type_
+
+    j = job_properties(
+        account="root",
+        partition="debug",
+        array="",
+        ntasks=1,
+        name="testing",
+        nodes=[0, 0],
+        current_working_directory="/tmp/",
+        environment={}
+    )
+
+    # environment is defined object of type dict, invalid and can not be set with pydantic
+    j.environment = {
+        "PATH": "/bin:/usr/bin/:/usr/local/bin/",
+        "LD_LIBRARY_PATH": "/lib/:/lib64/:/usr/local/lib"
     }
-    r = client.call_slurmctld_submit_job(data=job)
+
+    j = job_submission(job=j, script="#!/bin/bash\nsrun echo it works")
+
+    data = j.dict(exclude_unset=True)
+    r = client._.slurmctld_submit_job(data=data)
     assert r.errors == []
 
 
@@ -171,12 +188,12 @@ def test_slurmctld_update_job():
 
 
 def test_slurmctld_get_jobs(client):
-    r = client.call_slurmctld_get_jobs()
+    r = client._.slurmctld_get_jobs()
     assert r.errors == []
 
 
 def test_slurmdbd_get_jobs(client):
-    r = client.call_slurmdbd_get_jobs()
+    r = client._.slurmdbd_get_jobs()
     assert r.errors == [] or r.errors[0]._raw_data == {'error': 'Nothing found with query', 'error_number': 9003, 'source': 'slurmdb_jobs_get', 'description': 'Nothing found'}
 
 
@@ -186,21 +203,23 @@ def test_slurmctld_get_node():
 
 
 def test_slurmctld_get_nodes(client):
-    r = client.call_slurmctld_get_nodes()
+    r = client._.slurmctld_get_nodes()
     assert r.errors == []
 
 
 def test_slurmctld_get_partition(client):
-    r = client.call_slurmctld_get_partition(parameters={"partition_name":"debug"})
+    r = client._.slurmctld_get_partition(parameters={"partition_name":"debug"})
     assert r.errors == []
     assert len(r.partitions) > 0
 
+
 def test_slurmctld_get_partitions(client):
-    r = client.call_slurmctld_get_partitions()
+    r = client._.slurmctld_get_partitions()
     assert r.errors == []
 
+
 def test_slurmctld_ping(client):
-    r = client.call_slurmctld_ping()
+    r = client._.slurmctld_ping()
     assert r.errors == []
 
 
@@ -210,7 +229,7 @@ def test_slurmdbd_delete_qos():
 
 
 def test_slurmdbd_get_qos(client):
-    r = client.call_slurmdbd_get_qos()
+    r = client._.slurmdbd_get_qos()
     assert r.errors == []
 
 
@@ -220,7 +239,7 @@ def test_slurmdbd_get_single_qos():
 
 
 def test_slurmdbd_get_tres(client):
-    r = client.call_slurmdbd_get_tres()
+    r = client._.slurmdbd_get_tres()
     assert r.errors == []
 
 
@@ -231,38 +250,47 @@ def test_slurmdbd_update_tres():
 
 def test_slurmdbd_delete_user(client):
     username = "c01teus"
-    r = client.call_slurmdbd_delete_user(parameters={"user_name":username})
+    r = client._.slurmdbd_delete_user(parameters={"user_name":username})
     assert r.errors == []
+
 
 def test_slurmdbd_get_user(client):
     username = "c01teus"
-    r = client.call_slurmdbd_get_user(parameters={"user_name":username})
+    r = client._.slurmdbd_get_user(parameters={"user_name":username})
     assert r.errors == []
     assert len(r.users) == 1
     assert r.users[0].name == username
 
 
 def test_slurmdbd_get_users(client):
-    r = client.call_slurmdbd_get_users()
+    r = client._.slurmdbd_get_users()
     assert r.errors == []
     assert len(r.users) > 0
+
 
 def test_slurmdbd_update_users(client):
     username = "c01teus"
 
-    association = client.components.schemas[f"{client.info.version}_association"].model(
-        data={'account': "testing", 'cluster': 'c0', 'partition': None, 'user': username})
+    s = client._.slurmdbd_update_users.args()["data"]
+    update_users = s.get_type()
+    user = update_users.__fields__["users"].type_
+    default_settings = user.__fields__["default"].type_
+    association_short_info = user.__fields__["associations"].type_
 
-    user = client.components.schemas[f"{client.info.version}_user"].model(
-        data={
-            "name": username,
-            "default": {"account": "testing"},
-            "associations": [association._raw_data],
-            "coordinators": []
-        })
-    users = client.components.schemas[f"{client.info.version}_update_users"].model(data={"users":[user._raw_data]})
+    a = association_short_info(
+        account="testing",
+        cluster='c0',
+        partition=None,
+        user=username,
+        usage=None)
 
-    r = client.call_slurmdbd_update_users(data=users)
+    u = user(name=username,
+        default=default_settings(account="testing"),
+        associations=[a],
+        coordinators=[])
+
+    m = update_users(users=[u])
+    r = client._.slurmdbd_update_users(data=m)
     assert r.errors == []
 
 
@@ -282,7 +310,7 @@ def test_slurmdbd_add_wckeys():
 
 
 def test_slurmdbd_get_wckeys(client):
-    r = client.call_slurmdbd_get_wckeys()
+    r = client._.slurmdbd_get_wckeys()
     assert r.errors == [] or r.errors[0].error == 'Nothing found with query'
 
 
