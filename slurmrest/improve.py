@@ -394,21 +394,12 @@ def apply(spec, version, live=''):
             'submitted': {"type":"string"},
         })
 
-        spec['components']['schemas'][f"{version}_association"]["properties"]['usage'] = {
-            "oneOf": [
-                spec['components']['schemas'][f"{version}_association"]["properties"]['usage'],
-                {"type":"null"}
-            ]
-        }
-
         # cluster
         spec['components']['schemas'][f"{version}_cluster"] = spec['components']['schemas'][f"{version}_cluster_info"].copy()
 
-        spec['components']['schemas'][f"{version}_cluster"]["properties"]["associations"]["properties"]["root"] =  {
-            "oneOf": [
-                {"$ref": f"#/components/schemas/{version}_association_short_info"},
-                {"type": "null"}
-            ]
+        spec['components']['schemas'][f"{version}_cluster"]["properties"]["associations"]["properties"]["root"] = {
+            "$ref": f"#/components/schemas/{version}_association_short_info"
+        }
 
         spec['components']['schemas'][f"{version}_cluster"]["properties"]["tres"] = {
             "$ref": f"#/components/schemas/{version}_tres_list"
