@@ -178,27 +178,43 @@ def apply(spec, version, live=''):
         # using dicts with dynamic index for lists
 
         spec['components']['schemas'][f'{version}_job_resources']['properties']["allocated_nodes"] = {
-            "type": "object",
+            "type": "array",
             "description": "node allocations",
-            "properties": {
-                "0": {
-                    "type":"object",
-                    "$ref": f"#/components/schemas/{version}_node_allocation"
-                },
+            "items": {
+                "$ref": f"#/components/schemas/{version}_node_allocation"
             }
         }
 
-        # same
         spec['components']['schemas'][f'{version}_node_allocation']['properties']["cores"] = {
-            "type":"object",
+            "type":"array",
             "description":"FIXME",
-            "properties": {
-                "0": {"type":"string"}
+            "items": {
+                "type":"object",
+                "properties": {
+                    "core":{
+                        "type":"integer",
+                    },
+                    "type": {
+                        "type":"string"
+                    }
+                }
             }
         }
-
-        # same
-        spec['components']['schemas'][f'{version}_node_allocation']['properties']["sockets"] = spec['components']['schemas'][f'{version}_node_allocation']['properties']["cores"]
+        spec['components']['schemas'][f'{version}_node_allocation']['properties']["sockets"] = {
+            "type":"array",
+            "description":"FIXME",
+            "items": {
+                "type":"object",
+                "properties": {
+                    "socket":{
+                        "type":"integer",
+                    },
+                    "type": {
+                        "type":"string"
+                    }
+                }
+            }
+        }
         spec['components']['schemas'][f'{version}_node_allocation']['properties']["cpus"] = {"type":"integer"}
     else:
         # dbd
@@ -393,8 +409,10 @@ def apply(spec, version, live=''):
                 {"$ref": f"#/components/schemas/{version}_association_short_info"},
                 {"type": "null"}
             ]
+
+        spec['components']['schemas'][f"{version}_cluster"]["properties"]["tres"] = {
+            "$ref": f"#/components/schemas/{version}_tres_list"
         }
-        spec['components']['schemas'][f"{version}_cluster"]["properties"]["tres"] = {"$ref": f"#/components/schemas/{version}_tres_list"}
 
         del spec['components']['schemas'][f"{version}_cluster"]["properties"]["meta"]
 
@@ -473,7 +491,6 @@ def apply(spec, version, live=''):
         spec['components']['schemas'][f"{version}_job"]["properties"]["het"]["properties"]["job_id"]["type"] = "integer"
         spec['components']['schemas'][f"{version}_job"]["properties"]["het"]["properties"]["job_offset"]["type"] = "integer"
         spec['components']['schemas'][f"{version}_job_step"]["properties"].update({
-#            "distribution":{"type":"string"},
             "task": {
                 "type": "object",
                 "properties": {
@@ -573,7 +590,7 @@ def create_parser():
 
     cmd.set_defaults(func=cmd_patch)
 
-    
+
     return parser
 
 

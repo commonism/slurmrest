@@ -61,7 +61,7 @@ def test_slurmdbd_get_account(client):
 
 
 def test_slurmdbd_update_account(client):
-    update_account = client._.slurmdbd_update_account.args()["data"].get_type()
+    update_account = client._.slurmdbd_update_account.data.get_type()
     account = update_account.__fields__["accounts"].type_
     association_short_info = account.__fields__["associations"].type_
 
@@ -155,7 +155,7 @@ def test_slurmdbd_get_job():
 
 
 def test_slurmctld_submit_job(client):
-    job_submission = client._.slurmctld_submit_job.args()["data"].get_type()
+    job_submission = client._.slurmctld_submit_job.data.get_type()
     job_properties = job_submission.__fields__["job"].type_
 
     j = job_properties(
@@ -188,6 +188,28 @@ def test_slurmctld_update_job():
 
 
 def test_slurmctld_get_jobs(client):
+    def hook_job_resources(data):
+        for job in range(len(data["jobs"])):
+            if 'allocated_nodes' not in data['jobs'][job]['job_resources']:
+                continue
+            data['jobs'][job]['job_resources']['allocated_nodes'] = [{**i, "node": k} for k, i in data['jobs'][job]['job_resources']['allocated_nodes'].items()]
+        return data
+
+    def hook_node_allocation(data):
+        for job in range(len(data["jobs"])):
+            if 'allocated_nodes' not in data['jobs'][job]['job_resources']:
+                continue
+            for node in range(len(data['jobs'][job]['job_resources']['allocated_nodes'])):
+                data['jobs'][job]['job_resources']['allocated_nodes'][node]['cores'] = [{"core":k,"type":v} for k,v in data['jobs'][job]['job_resources']['allocated_nodes'][node]['cores'].items()]
+            for node in range(len(data['jobs'][job]['job_resources']['allocated_nodes'])):
+                data['jobs'][job]['job_resources']['allocated_nodes'][node]['sockets'] = [{"socket":k,"type":v} for k,v in data['jobs'][job]['job_resources']['allocated_nodes'][node]['sockets'].items()]
+
+        return data
+
+    client.hooks = {
+        id(client._.slurmctld_get_jobs.return_value()):[hook_job_resources, hook_node_allocation]
+    }
+
     r = client._.slurmctld_get_jobs()
     assert r.errors == []
 
@@ -271,7 +293,7 @@ def test_slurmdbd_get_users(client):
 def test_slurmdbd_update_users(client):
     username = "c01teus"
 
-    s = client._.slurmdbd_update_users.args()["data"]
+    s = client._.slurmdbd_update_users.data
     update_users = s.get_type()
     user = update_users.__fields__["users"].type_
     default_settings = user.__fields__["default"].type_
