@@ -13,6 +13,8 @@ from jwt import JWT
 from jwt.jwk import jwk_from_dict
 from jwt.utils import b64encode
 
+import aiopenapi3.plugin
+
 
 def token(key, user):
     priv_key = base64.b64decode(key)
@@ -55,6 +57,46 @@ def wget(url, user, token):
     return r
 
 
+class OnDocument(aiopenapi3.plugin.Document):
+    def __init__(self, version):
+        self._version = version
+    def parsed(self, ctx):
+        spec = ctx.document
+        for i in ["", "db"]:
+            apply(spec, f"{i}{self._version}", f"/slurm{i}/{self._version}")
+        return ctx
+
+
+class OnMessage(aiopenapi3.plugin.Message):
+    def parsed(self, ctx):
+        if ctx.operationId == "slurmctld_get_jobs":
+            data = ctx.parsed
+            # job_resources
+            for job in range(len(data["jobs"])):
+                if 'allocated_nodes' not in data['jobs'][job]['job_resources']:
+                    continue
+                data['jobs'][job]['job_resources']['allocated_nodes'] = \
+                    [{**i, "node": k} for k, i in data['jobs'][job]['job_resources']['allocated_nodes'].items()]
+
+            # node_allocation
+            for job in range(len(data["jobs"])):
+                if 'allocated_nodes' not in data['jobs'][job]['job_resources']:
+                    continue
+                for node in range(len(data['jobs'][job]['job_resources']['allocated_nodes'])):
+                    new = [
+                        {"core": k, "type": v}
+                        for k, v in data['jobs'][job]['job_resources']['allocated_nodes'][node]['cores'].items()
+                    ]
+                    data['jobs'][job]['job_resources']['allocated_nodes'][node]['cores'] = new
+                for node in range(len(data['jobs'][job]['job_resources']['allocated_nodes'])):
+                    new = [
+                        {"socket": k, "type": v}
+                        for k, v in data['jobs'][job]['job_resources']['allocated_nodes'][node]['sockets'].items()
+                    ]
+                    data['jobs'][job]['job_resources']['allocated_nodes'][node]['sockets'] = new
+        return ctx
+
+
 def apply(spec, version, live=''):
 
     _,v0 = versionof(version)
@@ -82,7 +124,6 @@ def apply(spec, version, live=''):
         raise KeyError(name)
 
     # all
-
     # openapi3.errors.SpecError: Could not parse security.0, expected to be one of [['SecurityRequirement']]
     spec["security"] = [{"user": []}, {"token": []}]
 

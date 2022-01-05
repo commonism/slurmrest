@@ -27,20 +27,12 @@ def config():
 @pytest.fixture(scope="session")
 def client(config, token, spec):
     user = config["user"]
-    _v = spec['info']['version'].split('v')[1]
-    for i in ["","db"]:
-#        improve.apply(spec, f"{i}v0.0.36", f"/slurm{i}/v0.0.37")
-        improve.apply(spec, f"{i}v0.0.37", f"/slurm{i}/v0.0.37")
-#        improve.apply(spec, f"{i}v0.0.38", f"/slurm{i}/v0.0.38")
-#        improve.apply(spec, f"{i}v{_v}", f"/slurm{i}/v{_v}")
-
-
-    spec["servers"][0]["url"] = "http://127.0.0.1:6820" + spec["servers"][0]["url"]
     import json, httpx
     def session_factory(*args, **kwargs) -> httpx.Client:
         return improve._session_factory(user, token)
 
-    api = OpenAPI.loads("slurmrest.json", json.dumps(spec), session_factory=session_factory)
+    api = OpenAPI.load_sync(config["url"], session_factory=session_factory,
+                        plugins=[improve.OnDocument("v0.0.37"),improve.OnMessage()])
     # api.authenticate does not work for multi values
     api._security = {'user': user, 'token': token}
     api.info.version = "dbv0.0.37"
@@ -188,35 +180,13 @@ def test_slurmctld_update_job():
 
 
 def test_slurmctld_get_jobs(client):
-    def hook_job_resources(data):
-        for job in range(len(data["jobs"])):
-            if 'allocated_nodes' not in data['jobs'][job]['job_resources']:
-                continue
-            data['jobs'][job]['job_resources']['allocated_nodes'] = [{**i, "node": k} for k, i in data['jobs'][job]['job_resources']['allocated_nodes'].items()]
-        return data
-
-    def hook_node_allocation(data):
-        for job in range(len(data["jobs"])):
-            if 'allocated_nodes' not in data['jobs'][job]['job_resources']:
-                continue
-            for node in range(len(data['jobs'][job]['job_resources']['allocated_nodes'])):
-                data['jobs'][job]['job_resources']['allocated_nodes'][node]['cores'] = [{"core":k,"type":v} for k,v in data['jobs'][job]['job_resources']['allocated_nodes'][node]['cores'].items()]
-            for node in range(len(data['jobs'][job]['job_resources']['allocated_nodes'])):
-                data['jobs'][job]['job_resources']['allocated_nodes'][node]['sockets'] = [{"socket":k,"type":v} for k,v in data['jobs'][job]['job_resources']['allocated_nodes'][node]['sockets'].items()]
-
-        return data
-
-    client.hooks = {
-        id(client._.slurmctld_get_jobs.return_value()):[hook_job_resources, hook_node_allocation]
-    }
-
     r = client._.slurmctld_get_jobs()
     assert r.errors == []
 
 
 def test_slurmdbd_get_jobs(client):
     r = client._.slurmdbd_get_jobs()
-    assert r.errors == [] or r.errors[0]._raw_data == {'error': 'Nothing found with query', 'error_number': 9003, 'source': 'slurmdb_jobs_get', 'description': 'Nothing found'}
+    assert r.errors == [] or r.errors[0].dict(exclude_unset=True) == {'error': 'Nothing found with query', 'error_number': 9003, 'source': 'slurmdb_jobs_get', 'description': 'Nothing found'}
 
 
 @pytest.mark.xfail(raises=NotImplementedError)
