@@ -13,10 +13,6 @@ def token(config):
 
 
 @pytest.fixture(scope="session")
-def spec(config, token):
-    return improve.wget(config["url"], config["user"], token).json()
-
-@pytest.fixture(scope="session")
 def config():
     cfg = yaml.load(open('config.yml', 'r'), Loader=yaml.Loader)
     return cfg
@@ -25,14 +21,15 @@ def config():
 
 
 @pytest.fixture(scope="session")
-def client(config, token, spec):
+def client(config, token):
     user = config["user"]
     import json, httpx
     def session_factory(*args, **kwargs) -> httpx.Client:
-        return improve._session_factory(user, token)
+        return improve._session_factory(user, token, headers={"User-Agent":f"aiopenapi3+slurmrest/0.1.0"})
 
     api = OpenAPI.load_sync(config["url"], session_factory=session_factory,
-                        plugins=[improve.OnDocument("v0.0.37"),improve.OnMessage()])
+                        plugins=[improve.OnDocument("v0.0.37"),
+                                 improve.OnMessage()])
     # api.authenticate does not work for multi values
     api._security = {'user': user, 'token': token}
     api.info.version = "dbv0.0.37"

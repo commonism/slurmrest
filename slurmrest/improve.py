@@ -40,10 +40,12 @@ def versionof(name):
     return re.match("(\D+)([\w.]+)", name).groups()
 
 
-session = httpx.Client()
+session = None
 
-def _session_factory(user, token):
+def _session_factory(user, token, *args, **kwargs):
     global session
+    if not session:
+        session = httpx.Client(*args, **kwargs)
     session.headers.update({
         "X-SLURM-USER-NAME": user,
         "X-SLURM-USER-TOKEN": token,
