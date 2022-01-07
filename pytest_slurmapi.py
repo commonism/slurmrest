@@ -169,7 +169,7 @@ def test_slurmctld_submit_job(client):
 
     j = job_submission(job=j, script="#!/bin/bash\nsrun echo it works")
 
-    data = j.dict(exclude_unset=True)
+    data = j.dict(exclude_unset=True) #exclude={"job": {"argv"}})
     r = client._.slurmctld_submit_job(data=data)
     assert r.errors == []
 
