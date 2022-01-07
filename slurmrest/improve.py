@@ -257,6 +257,8 @@ def apply(spec, version, live=''):
             }
         }
         spec['components']['schemas'][f'{version}_node_allocation']['properties']["cpus"] = {"type":"integer"}
+
+        del spec['components']['schemas'][f"{version}_job_properties"]["properties"]["account_gather_freqency"]
     else:
         # dbd
         spec['components']['schemas'][f"{version}_user"]["properties"]["associations"] = \
