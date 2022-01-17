@@ -40,12 +40,8 @@ def versionof(name):
     return re.match("(\D+)([\w.]+)", name).groups()
 
 
-session = None
-
-def _session_factory(user, token, *args, **kwargs):
-    global session
-    if not session:
-        session = httpx.Client(*args, **kwargs)
+def wget_factory(user, token, *args, **kwargs):
+    session = httpx.Client(*args, **kwargs)
     session.headers.update({
         "X-SLURM-USER-NAME": user,
         "X-SLURM-USER-TOKEN": token,
@@ -54,7 +50,7 @@ def _session_factory(user, token, *args, **kwargs):
 
 
 def wget(url, user, token):
-    s = _session_factory(user, token)
+    s = wget_factory(user, token)
     r = s.get(url)
     return r
 
@@ -124,10 +120,6 @@ def apply(spec, version, live=''):
         if (r:= jmespath.search(f"paths.[*][].[*][][?operationId == '{name}'][]", spec)):
             return r[0]
         raise KeyError(name)
-
-    # all
-    # openapi3.errors.SpecError: Could not parse security.0, expected to be one of [['SecurityRequirement']]
-    spec["security"] = [{"user": []}, {"token": []}]
 
     spec['components']['schemas'].update({
         f"{version}_meta": {

@@ -23,15 +23,22 @@ def config():
 @pytest.fixture(scope="session")
 def client(config, token):
     user = config["user"]
+    headers = {"User-Agent": f"aiopenapi3+slurmrest/0.1.0"}
     import json, httpx
-    def session_factory(*args, **kwargs) -> httpx.Client:
-        return improve._session_factory(user, token, headers={"User-Agent":f"aiopenapi3+slurmrest/0.1.0"})
+    def wget_factory(*args, **kwargs) -> httpx.Client:
+        return improve.wget_factory(user, token, headers=headers)
 
-    api = OpenAPI.load_sync(config["url"], session_factory=session_factory,
+    api = OpenAPI.load_sync(config["url"], session_factory=wget_factory,
                         plugins=[improve.OnDocument("v0.0.37"),
                                  improve.OnMessage()])
-    # api.authenticate does not work for multi values
-    api._security = {'user': user, 'token': token}
+
+    def session_f(*args, **kwargs):
+        h = kwargs.get("headers", dict()).copy()
+        h.update(headers)
+        kwargs["headers"] = h
+        return httpx.Client(*args, **kwargs)
+    api.wget_factory = session_f
+    api.authenticate(user=user, token=token)
     api.info.version = "dbv0.0.37"
     return api
 
