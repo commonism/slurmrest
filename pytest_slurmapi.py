@@ -1,6 +1,6 @@
 import yaml
 import pytest
-import openapi3
+#import openapi3
 from aiopenapi3 import OpenAPI
 
 from slurmrest import improve

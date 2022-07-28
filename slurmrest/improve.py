@@ -57,6 +57,7 @@ def wget(url, user, token):
 
 class OnDocument(aiopenapi3.plugin.Document):
     def __init__(self, version):
+        super().__init__()
         self._version = version
     def parsed(self, ctx):
         spec = ctx.document
@@ -117,7 +118,10 @@ def apply(spec, version, live=''):
 
 
     def operationof(name):
+
         if (r:= jmespath.search(f"paths.[*][].[*][][?operationId == '{name}'][]", spec)):
+            return r[0]
+        elif(r:= jmespath.search(f"""paths.[*][].[*][][?operationId == '{name.partition("_")[2]}'][]""", spec)):
             return r[0]
         raise KeyError(name)
 
@@ -200,7 +204,10 @@ def apply(spec, version, live=''):
 
     if version.startswith("v"):
         # ctld
-        del spec['components']['schemas'][f'{version}_job_submission']['properties']['job']['description']
+        try:
+            del spec['components']['schemas'][f'{version}_job_submission']['properties']['job']['description']
+        except KeyError:
+            pass
         spec['components']['schemas'][f"{version}_error"]["properties"].update({
             "error_code":{"type": "integer"},
             "error_number": {"type": "integer"},
@@ -587,7 +594,7 @@ def create_parser():
     cmd.add_argument("--out", default="data/src")
 
     def cmd_get(args):
-        for name, version in itertools.product(["dbv", "v"], list(f'0.0.{i}' for i in range(36, 39))):
+        for name, version in itertools.product(["dbv", "v"], list(f'0.0.{i}' for i in range(37, 39))):
             url = f"https://raw.githubusercontent.com/SchedMD/slurm/master/src/plugins/openapi/{name}{version}/openapi.json"
             out = Path(args.out) / f"{name}{version}.json"
             if not (p := out.parent).exists():
