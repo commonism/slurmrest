@@ -175,7 +175,7 @@ def apply(spec, version, live=''):
 
     for k, v in spec['components']['schemas'].items():
         if not "properties" in v:
-            print(f"{k} {v}")
+#            print(f"{k} {v}")
             continue
 
         if k in set([f"{version}_pings",
