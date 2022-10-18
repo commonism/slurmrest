@@ -46,7 +46,8 @@ class Resource:
 
 
 class Export:
-    STATES = ['drained', 'draining', 'idle', 'mixed', "allocated", "down"]
+    # https://slurm.schedmd.com/sinfo.html#OPT_STATE
+    STATES = "allocated, completing, down, drained, draining, fail, failing, future, idle, maint, mixed, perfctrs, planned, power_down, power_up, reserved, unknown".split(", ")
 
     def __init__(self):
         self.registry = registry = CollectorRegistry()
@@ -96,7 +97,7 @@ def main():
         e.state_name.labels(i.name).state(s)
         e.state_value.labels(i.name).set(Export.STATES.index(s))
 
-        if s == "drained":
+        if s not in {"idle","mixed"}:
             continue
 
         for name,data in {"tres":total_, "tres_used":used_}.items():
